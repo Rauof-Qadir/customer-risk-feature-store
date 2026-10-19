@@ -189,3 +189,114 @@ def test_same_step_transactions_do_not_leak_into_history():
 
     finally:
         con.close()
+
+
+
+
+def test_current_step_amounts_do_not_leak_into_historical_average():
+    sql = SQL_FILE.read_text(encoding="utf-8").strip().rstrip(";")
+    con = duckdb.connect(database=":memory:")
+
+    try:
+        con.execute("""
+            CREATE TABLE transactions (
+                step INTEGER,
+                type VARCHAR,
+                amount DOUBLE,
+                nameOrig VARCHAR,
+                oldbalanceOrg DOUBLE,
+                newbalanceOrig DOUBLE,
+                nameDest VARCHAR,
+                oldbalanceDest DOUBLE,
+                newbalanceDest DOUBLE,
+                isFraud INTEGER,
+                isFlaggedFraud INTEGER
+            )
+        """)
+
+        con.execute("""
+            INSERT INTO transactions VALUES
+            (1, 'PAYMENT', 10, 'C001', 100, 90, 'D1', 0, 10, 0, 0),
+            (1, 'PAYMENT', 20, 'C001', 90, 70, 'D2', 0, 20, 0, 0),
+            (2, 'TRANSFER', 30, 'C001', 70, 40, 'D3', 0, 30, 0, 0),
+            (2, 'CASH_OUT', 1000, 'C001', 40, 0, 'D4', 0, 1000, 0, 0)
+        """)
+
+        con.execute(
+            f"CREATE VIEW generated_features AS {sql}"
+        )
+
+        results = con.execute("""
+            SELECT
+                amount,
+                customer_transaction_count,
+                customer_avg_amount,
+                amount_vs_avg
+            FROM generated_features
+            WHERE nameOrig = 'C001'
+              AND step = 2
+            ORDER BY amount
+        """).fetchall()
+
+        assert len(results) == 2
+
+        for amount, count, avg_amount, ratio in results:
+            assert count == 2
+            assert avg_amount == pytest.approx(15.0)
+            assert ratio == pytest.approx(amount / 15.0)
+
+    finally:
+        con.close()
+
+
+
+
+
+def test_feature_generation_preserves_transaction_row_count():
+    sql = SQL_FILE.read_text(encoding="utf-8").strip().rstrip(";")
+    con = duckdb.connect(database=":memory:")
+
+    try:
+        con.execute("""
+            CREATE TABLE transactions (
+                step INTEGER,
+                type VARCHAR,
+                amount DOUBLE,
+                nameOrig VARCHAR,
+                oldbalanceOrg DOUBLE,
+                newbalanceOrig DOUBLE,
+                nameDest VARCHAR,
+                oldbalanceDest DOUBLE,
+                newbalanceDest DOUBLE,
+                isFraud INTEGER,
+                isFlaggedFraud INTEGER
+            )
+        """)
+
+        con.execute("""
+            INSERT INTO transactions VALUES
+            (1, 'PAYMENT', 10, 'C001', 100, 90, 'D1', 0, 10, 0, 0),
+            (1, 'TRANSFER', 20, 'C001', 90, 70, 'D2', 0, 20, 0, 0),
+            (2, 'PAYMENT', 30, 'C001', 70, 40, 'D3', 0, 30, 0, 0),
+            (2, 'CASH_OUT', 40, 'C001', 40, 0, 'D4', 0, 40, 0, 0)
+        """)
+
+        con.execute(
+            f"CREATE VIEW generated_features AS {sql}"
+        )
+
+        raw_count = con.execute("""
+            SELECT COUNT(*) FROM transactions
+        """).fetchone()[0]
+
+        feature_count = con.execute("""
+            SELECT COUNT(*) FROM generated_features
+        """).fetchone()[0]
+
+        assert raw_count == 4
+        assert feature_count == raw_count
+
+    finally:
+        con.close()
+
+
