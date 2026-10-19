@@ -78,6 +78,38 @@ def build_quality_checks(
     }
 
 
+
+def audit_transaction_integrity(con) -> dict:
+    """Compare raw and feature transactions as multisets."""
+
+    columns = """
+        step, type, amount, nameOrig,
+        oldbalanceOrg, newbalanceOrig, nameDest,
+        oldbalanceDest, newbalanceDest, isFraud, isFlaggedFraud
+    """
+
+    result = con.execute(f"""
+        WITH raw_only AS (
+            SELECT {columns} FROM raw_data
+            EXCEPT ALL
+            SELECT {columns} FROM features
+        ),
+        feature_only AS (
+            SELECT {columns} FROM features
+            EXCEPT ALL
+            SELECT {columns} FROM raw_data
+        )
+        SELECT
+            (SELECT COUNT(*) FROM raw_only) AS missing_transactions,
+            (SELECT COUNT(*) FROM feature_only) AS extra_or_altered_transactions
+    """).fetchone()
+
+    return {
+        "missing_transactions": result[0],
+        "extra_or_altered_transactions": result[1],
+        "passed": result[0] == 0 and result[1] == 0,
+    }
+
 def validate_feature_dataset() -> None:
     if not RAW_FILE.exists():
         raise FileNotFoundError(f"Raw dataset not found: {RAW_FILE}")
@@ -126,12 +158,6 @@ def validate_feature_dataset() -> None:
             and actual_types[column] != expected_type
         )
 
-        if missing_columns:
-            raise AssertionError(
-                f"Missing required columns: {missing_columns}"
-            )
-
-        missing_columns = sorted(REQUIRED_COLUMNS - columns)
 
         if missing_columns:
             raise AssertionError(
@@ -224,6 +250,8 @@ def validate_feature_dataset() -> None:
 
         metrics = dict(zip(names, result))
 
+        transaction_integrity = audit_transaction_integrity(con)
+
         checks = build_quality_checks(
             metrics,
             missing_columns,
@@ -235,10 +263,13 @@ def validate_feature_dataset() -> None:
             "checks_passed": sum(checks.values()),
             "checks_total": len(checks),
             "status": (
-                "PASS" if all(checks.values()) else "FAIL"
+                "PASS"
+                if all(checks.values()) and transaction_integrity["passed"]
+                else "FAIL"
             ),
             "checks": checks,
             "metrics": metrics,
+            "transaction_integrity": transaction_integrity,
         }
 
         REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -256,12 +287,26 @@ def validate_feature_dataset() -> None:
         print(f"Raw rows: {metrics['raw_rows']:,}")
         print(f"Feature rows: {metrics['feature_rows']:,}")
 
+        print("\n=== TRANSACTION INTEGRITY AUDIT ===")
+        print(
+            "Missing transactions:",
+            f"{transaction_integrity['missing_transactions']:,}",
+                )
+        print(
+            "Extra or altered transactions:",
+            f"{transaction_integrity['extra_or_altered_transactions']:,}",
+        )   
+        print(
+            "Integrity status:",
+            "PASS" if transaction_integrity["passed"] else "FAIL",
+        )
+
         for name, passed in checks.items():
             print(f"[{'PASS' if passed else 'FAIL'}] {name}")
 
         print(f"\nReport saved to: {REPORT_FILE}")
 
-        if not all(checks.values()):
+        if not all(checks.values()) or not transaction_integrity["passed"]:
             raise AssertionError(
                 "Feature dataset quality validation failed. "
                 "Review the report for details."
