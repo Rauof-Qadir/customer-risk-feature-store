@@ -28,7 +28,7 @@ def valid_metrics():
 def test_valid_metrics_pass_all_quality_checks(valid_metrics):
     checks = build_quality_checks(valid_metrics, [])
 
-    assert len(checks) == 12
+    assert len(checks) == 13
     assert all(checks.values())
 
 
@@ -39,7 +39,7 @@ def test_missing_required_column_fails(valid_metrics):
     )
 
     assert checks["required_columns_present"] is False
-    assert sum(checks.values()) == 11
+    assert sum(checks.values()) == 12
 
 
 @pytest.mark.parametrize(
@@ -80,3 +80,13 @@ def test_invalid_metrics_fail_their_quality_check(
     checks = build_quality_checks(valid_metrics, [])
 
     assert checks[check_name] is False
+
+
+def test_wrong_feature_type_fails_schema_check(valid_metrics):
+    checks = build_quality_checks(
+        valid_metrics,
+        [],
+        ["customer_transaction_count"],
+    )
+
+    assert checks["feature_types_valid"] is False

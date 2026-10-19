@@ -45,8 +45,11 @@ customer_features AS (
     SELECT
         customer_id,
         step,
-        customer_transaction_count,
-        customer_prior_active_steps,
+        CAST(customer_transaction_count AS BIGINT)
+            AS customer_transaction_count,
+        CAST(customer_prior_active_steps AS BIGINT)
+            AS customer_prior_active_steps,
+        
 
         CASE
             WHEN customer_prior_active_steps > 0

@@ -27,15 +27,28 @@ REQUIRED_COLUMNS = {
     "amount_vs_avg",
 }
 
+EXPECTED_FEATURE_TYPES = {
+    "customer_transaction_count": "BIGINT",
+    "customer_prior_active_steps": "BIGINT",
+    "customer_avg_transactions_per_active_step": "DOUBLE",
+    "customer_avg_amount": "DOUBLE",
+    "has_customer_history": "INTEGER",
+    "amount_vs_avg": "DOUBLE",
+}
+
 
 def build_quality_checks(
     metrics: dict,
     missing_columns: list[str],
+    wrong_feature_types: list[str] | None = None,
 ) -> dict[str, bool]:
     """Evaluate feature dataset quality metrics using reusable rules."""
 
+    wrong_feature_types = wrong_feature_types or []
+
     return {
         "required_columns_present": len(missing_columns) == 0,
+        "feature_types_valid": len(wrong_feature_types) == 0,
         "row_count_matches_raw": (
             metrics["raw_rows"] == metrics["feature_rows"]
         ),
@@ -93,12 +106,30 @@ def validate_feature_dataset() -> None:
             SELECT * FROM read_parquet('{feature_path}')
         """)
 
-        columns = {
-            row[0]
-            for row in con.execute(
-                "DESCRIBE features"
-            ).fetchall()
+        schema_rows = con.execute(
+            "DESCRIBE features"
+        ).fetchall()
+
+        actual_types = {
+            row[0]: row[1].upper()
+            for row in schema_rows
         }
+
+        columns = set(actual_types)
+
+        missing_columns = sorted(REQUIRED_COLUMNS - columns)
+
+        wrong_feature_types = sorted(
+            column
+            for column, expected_type in EXPECTED_FEATURE_TYPES.items()
+            if column in actual_types
+            and actual_types[column] != expected_type
+        )
+
+        if missing_columns:
+            raise AssertionError(
+                f"Missing required columns: {missing_columns}"
+            )
 
         missing_columns = sorted(REQUIRED_COLUMNS - columns)
 
@@ -193,8 +224,12 @@ def validate_feature_dataset() -> None:
 
         metrics = dict(zip(names, result))
 
-        checks =  build_quality_checks(metrics, missing_columns)
-        
+        checks = build_quality_checks(
+            metrics,
+            missing_columns,
+            wrong_feature_types,
+        )
+
         report = {
             "project": "Customer Risk Feature Store",
             "checks_passed": sum(checks.values()),
