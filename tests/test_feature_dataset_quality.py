@@ -1,106 +1,82 @@
 
-import duckdb
 import pytest
 
-
-def test_feature_quality_rules_detect_invalid_history():
-    con = duckdb.connect(database=":memory:")
-
-    try:
-        con.execute("""
-            CREATE TABLE features (
-                customer_transaction_count BIGINT,
-                customer_prior_active_steps BIGINT,
-                has_customer_history INTEGER,
-                customer_avg_amount DOUBLE,
-                customer_avg_transactions_per_active_step DOUBLE,
-                amount_vs_avg DOUBLE
-            )
-        """)
-
-        # Valid first transaction: no historical information.
-        con.execute("""
-            INSERT INTO features VALUES
-            (0, 0, 0, NULL, NULL, NULL)
-        """)
-
-        valid_result = con.execute("""
-            SELECT COUNT(*)
-            FROM features
-            WHERE customer_transaction_count < 0
-               OR customer_prior_active_steps < 0
-               OR has_customer_history NOT IN (0, 1)
-               OR (
-                   customer_transaction_count = 0
-                   AND customer_avg_amount IS NOT NULL
-               )
-               OR (
-                   customer_prior_active_steps = 0
-                   AND customer_avg_transactions_per_active_step
-                       IS NOT NULL
-               )
-        """).fetchone()[0]
-
-        assert valid_result == 0
-
-        # Inject an invalid negative historical count.
-        con.execute("""
-            INSERT INTO features VALUES
-            (-1, 0, 0, NULL, NULL, NULL)
-        """)
-
-        invalid_result = con.execute("""
-            SELECT COUNT(*)
-            FROM features
-            WHERE customer_transaction_count < 0
-               OR customer_prior_active_steps < 0
-               OR has_customer_history NOT IN (0, 1)
-               OR (
-                   customer_transaction_count = 0
-                   AND customer_avg_amount IS NOT NULL
-               )
-               OR (
-                   customer_prior_active_steps = 0
-                   AND customer_avg_transactions_per_active_step
-                       IS NOT NULL
-               )
-        """).fetchone()[0]
-
-        assert invalid_result == 1
-
-    finally:
-        con.close()
+from src.feature_store.validate_feature_dataset import (
+    build_quality_checks,
+)
 
 
-def test_history_flag_must_match_historical_count():
-    con = duckdb.connect(database=":memory:")
+@pytest.fixture
+def valid_metrics():
+    return {
+        "raw_rows": 100,
+        "feature_rows": 100,
+        "null_customer_ids": 0,
+        "null_steps": 0,
+        "null_required_features": 0,
+        "negative_history_rows": 0,
+        "invalid_history_flags": 0,
+        "inconsistent_history_flags": 0,
+        "unexpected_avg_amount": 0,
+        "unexpected_active_step_average": 0,
+        "missing_historical_amount_average": 0,
+        "negative_active_step_average": 0,
+        "invalid_amount_ratios": 0,
+    }
 
-    try:
-        con.execute("""
-            CREATE TABLE features (
-                customer_transaction_count BIGINT,
-                has_customer_history INTEGER
-            )
-        """)
 
-        con.execute("""
-            INSERT INTO features VALUES
-            (0, 0),
-            (3, 1),
-            (3, 0)
-        """)
+def test_valid_metrics_pass_all_quality_checks(valid_metrics):
+    checks = build_quality_checks(valid_metrics, [])
 
-        mismatches = con.execute("""
-            SELECT COUNT(*)
-            FROM features
-            WHERE has_customer_history <>
-                CASE
-                    WHEN customer_transaction_count > 0 THEN 1
-                    ELSE 0
-                END
-        """).fetchone()[0]
+    assert len(checks) == 12
+    assert all(checks.values())
 
-        assert mismatches == 1
 
-    finally:
-        con.close()
+def test_missing_required_column_fails(valid_metrics):
+    checks = build_quality_checks(
+        valid_metrics,
+        ["customer_avg_amount"],
+    )
+
+    assert checks["required_columns_present"] is False
+    assert sum(checks.values()) == 11
+
+
+@pytest.mark.parametrize(
+    ("metric", "check_name"),
+    [
+        ("raw_rows", "row_count_matches_raw"),
+        ("null_customer_ids", "customer_ids_present"),
+        ("null_steps", "steps_present"),
+        ("null_required_features", "required_features_present"),
+        ("negative_history_rows", "historical_counts_nonnegative"),
+        ("invalid_history_flags", "history_flags_valid"),
+        ("inconsistent_history_flags", "history_flags_consistent"),
+        ("unexpected_avg_amount", "average_null_rules_valid"),
+        (
+            "unexpected_active_step_average",
+            "average_null_rules_valid",
+        ),
+        (
+            "missing_historical_amount_average",
+            "historical_amount_average_present",
+        ),
+        (
+            "negative_active_step_average",
+            "active_step_average_nonnegative",
+        ),
+        ("invalid_amount_ratios", "amount_ratios_valid"),
+    ],
+)
+def test_invalid_metrics_fail_their_quality_check(
+    valid_metrics,
+    metric,
+    check_name,
+):
+    valid_metrics[metric] = (
+        99 if metric == "raw_rows" else 1
+    )
+
+    checks = build_quality_checks(valid_metrics, [])
+
+    assert checks[check_name] is False

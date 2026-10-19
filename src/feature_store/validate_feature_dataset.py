@@ -28,6 +28,43 @@ REQUIRED_COLUMNS = {
 }
 
 
+def build_quality_checks(
+    metrics: dict,
+    missing_columns: list[str],
+) -> dict[str, bool]:
+    """Evaluate feature dataset quality metrics using reusable rules."""
+
+    return {
+        "required_columns_present": len(missing_columns) == 0,
+        "row_count_matches_raw": (
+            metrics["raw_rows"] == metrics["feature_rows"]
+        ),
+        "customer_ids_present": metrics["null_customer_ids"] == 0,
+        "steps_present": metrics["null_steps"] == 0,
+        "required_features_present": (
+            metrics["null_required_features"] == 0
+        ),
+        "historical_counts_nonnegative": (
+            metrics["negative_history_rows"] == 0
+        ),
+        "history_flags_valid": metrics["invalid_history_flags"] == 0,
+        "history_flags_consistent": (
+            metrics["inconsistent_history_flags"] == 0
+        ),
+        "average_null_rules_valid": (
+            metrics["unexpected_avg_amount"] == 0
+            and metrics["unexpected_active_step_average"] == 0
+        ),
+        "historical_amount_average_present": (
+            metrics["missing_historical_amount_average"] == 0
+        ),
+        "active_step_average_nonnegative": (
+            metrics["negative_active_step_average"] == 0
+        ),
+        "amount_ratios_valid": metrics["invalid_amount_ratios"] == 0,
+    }
+
+
 def validate_feature_dataset() -> None:
     if not RAW_FILE.exists():
         raise FileNotFoundError(f"Raw dataset not found: {RAW_FILE}")
@@ -156,40 +193,8 @@ def validate_feature_dataset() -> None:
 
         metrics = dict(zip(names, result))
 
-        checks = {
-            "required_columns_present": len(missing_columns) == 0,
-            "row_count_matches_raw": (
-                metrics["raw_rows"] == metrics["feature_rows"]
-            ),
-            "customer_ids_present": metrics["null_customer_ids"] == 0,
-            "steps_present": metrics["null_steps"] == 0,
-            "required_features_present": (
-                metrics["null_required_features"] == 0
-            ),
-            "historical_counts_nonnegative": (
-                metrics["negative_history_rows"] == 0
-            ),
-            "history_flags_valid": (
-                metrics["invalid_history_flags"] == 0
-            ),
-            "history_flags_consistent": (
-                metrics["inconsistent_history_flags"] == 0
-            ),
-            "average_null_rules_valid": (
-                metrics["unexpected_avg_amount"] == 0
-                and metrics["unexpected_active_step_average"] == 0
-            ),
-            "historical_amount_average_present": (
-                metrics["missing_historical_amount_average"] == 0
-            ),
-            "active_step_average_nonnegative": (
-                metrics["negative_active_step_average"] == 0
-            ),
-            "amount_ratios_valid": (
-                metrics["invalid_amount_ratios"] == 0
-            ),
-        }
-
+        checks =  build_quality_checks(metrics, missing_columns)
+        
         report = {
             "project": "Customer Risk Feature Store",
             "checks_passed": sum(checks.values()),
