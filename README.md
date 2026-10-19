@@ -84,25 +84,17 @@ The pipeline produces **six features**: five customer-history features and one t
 
 ## Historical Calculations
 
-For a customer at simulation step \(t\), historical features are calculated using transactions from **earlier simulation steps only**. Transactions from the current step are excluded from historical calculations to prevent data leakage.
+For a customer at simulation step $t$, historical features are calculated using transactions from **earlier simulation steps only**. Transactions from the current step are excluded from historical calculations to prevent data leakage.
 
 ### 1. Average Transactions per Active Step
 
-\[
-\text{Average Transactions per Active Step}
-=
-\frac{\text{Prior Transaction Count}}{\text{Prior Active Steps}}
-\]
+$$\text{Average Transactions per Active Step} = \frac{\text{Prior Transaction Count}}{\text{Prior Active Steps}}$$
 
 This measures the average number of transactions a customer makes during each previously active simulation step.
 
 ### 2. Amount vs. Historical Average
 
-\[
-\text{Amount vs. Historical Average}
-=
-\frac{\text{Current Transaction Amount}}{\text{Historical Average Amount}}
-\]
+$$\text{Amount vs. Historical Average} = \frac{\text{Current Transaction Amount}}{\text{Historical Average Amount}}$$
 
 This measures how large the current transaction is relative to the customer's historical average transaction amount.
 
