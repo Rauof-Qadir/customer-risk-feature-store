@@ -82,25 +82,31 @@ The pipeline produces **six features**: five customer-history features and one t
 | `has_customer_history` | `1` if prior transactions exist; otherwise `0` | Cold-start handling |
 | `amount_vs_avg` | Current amount divided by historical average amount when the average is positive | Unusual amount analysis |
 
-### Historical calculations
+## Historical Calculations
 
-For a customer at simulation step \(t\), the historical features use transactions from earlier steps only.
+For a customer at simulation step \(t\), historical features are calculated using transactions from **earlier simulation steps only**. Transactions from the current step are excluded from historical calculations to prevent data leakage.
+
+### 1. Average Transactions per Active Step
 
 \[
 \text{Average Transactions per Active Step}
 =
-\frac{\text{Prior Transaction Count}}
-{\text{Prior Active Steps}}
+\frac{\text{Prior Transaction Count}}{\text{Prior Active Steps}}
 \]
+
+This measures the average number of transactions a customer makes during each previously active simulation step.
+
+### 2. Amount vs. Historical Average
 
 \[
-\text{Amount vs Average}
+\text{Amount vs. Historical Average}
 =
-\frac{\text{Current Transaction Amount}}
-{\text{Historical Average Amount}}
+\frac{\text{Current Transaction Amount}}{\text{Historical Average Amount}}
 \]
 
-When a valid historical denominator does not exist, the corresponding average or ratio is `NULL`.
+This measures how large the current transaction is relative to the customer's historical average transaction amount.
+
+**Handling unavailable historical values:** If a customer has no prior active steps, the average transactions per active step is `NULL`. If no valid historical average amount exists, or the historical average is zero, the amount-to-average ratio is `NULL` to avoid division by zero.
 
 ### Preventing same-step leakage
 
